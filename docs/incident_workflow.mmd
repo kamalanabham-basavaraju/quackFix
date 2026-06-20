@@ -6,25 +6,27 @@ config:
 graph TD;
     __start__([start]):::first
     receive_incident(receive_incident)
-    search_parcel(search_parcel)
+    search_parcle(search_parcle)
     analyze_incident(analyze_incident)
     generate_enterpro_prompt(generate_enterpro_prompt)
     create_git_branch(create_git_branch)
     execute_enterpro(execute_enterpro)
     validate_changes(validate_changes)
     update_decision_log(update_decision_log)
+    sync_decision_to_parcle(sync_decision_to_parcle)
     commit_changes(commit_changes)
     return_summary(return_summary)
     __end__([end]):::last
     __start__ --> receive_incident;
-    receive_incident --> search_parcel;
-    search_parcel --> analyze_incident;
+    receive_incident --> search_parcle;
+    search_parcle --> analyze_incident;
     analyze_incident --> generate_enterpro_prompt;
     generate_enterpro_prompt --> create_git_branch;
     create_git_branch --> execute_enterpro;
     execute_enterpro --> validate_changes;
     validate_changes --> update_decision_log;
-    update_decision_log --> commit_changes;
+    update_decision_log --> sync_decision_to_parcle;
+    sync_decision_to_parcle --> commit_changes;
     commit_changes --> return_summary;
     return_summary --> __end__;
     classDef default fill:#f2f0ff,line-height:1.2

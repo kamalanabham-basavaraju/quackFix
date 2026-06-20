@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from app.graph.state import AgentState
 from app.integrations.git import GitClient
-from app.models.incident import IncidentAnalysis, ParcelDocument
+from app.models.incident import IncidentAnalysis, ParcleDocument, ParcleMemoryDocument
 from app.services.container import WorkflowServices
 
 logger = logging.getLogger(__name__)
@@ -21,8 +21,8 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _documents(state: AgentState) -> list[ParcelDocument]:
-    return [ParcelDocument.model_validate(item) for item in state.get("parcel_documents", [])]
+def _documents(state: AgentState) -> list[ParcleDocument]:
+    return [ParcleDocument.model_validate(item) for item in state.get("parcle_documents", [])]
 
 
 def build_nodes(services: WorkflowServices) -> dict[str, Node]:
@@ -42,10 +42,10 @@ def build_nodes(services: WorkflowServices) -> dict[str, Node]:
             "errors": [],
         }
 
-    def search_parcel(state: AgentState) -> dict[str, Any]:
-        documents = services.parcel.search(state["incident"])
+    def search_parcle(state: AgentState) -> dict[str, Any]:
+        documents = services.parcle.search(state["incident"])
         return {
-            "parcel_documents": [document.model_dump(mode="json") for document in documents],
+            "parcle_documents": [document.model_dump(mode="json") for document in documents],
             "memory_references": [document.reference for document in documents if document.reference],
         }
 
@@ -92,7 +92,7 @@ def build_nodes(services: WorkflowServices) -> dict[str, Node]:
     def update_decision_log(state: AgentState) -> dict[str, Any]:
         log_path = project_path / "docs" / "agent_decisions.md"
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        references = state.get("memory_references") or ["No Parcel documentation found"]
+        references = state.get("memory_references") or ["No Parcle documentation found"]
         file_reasons = "\n".join(f"* `{name}` — changed by Enter Pro to implement or verify the remediation." for name in state["files_modified"])
         entry = f"""
 ## {_utc_now().strftime('%Y-%m-%d %H:%M UTC')}
@@ -125,9 +125,27 @@ def build_nodes(services: WorkflowServices) -> dict[str, Node]:
         relative_log = log_path.relative_to(project_path).as_posix()
         return {
             "decision_log_path": relative_log,
+            "decision_entry": entry,
             "documentation_updated": True,
             "files_modified": sorted(set([*state["files_modified"], relative_log])),
         }
+
+    def sync_decision_to_parcle(state: AgentState) -> dict[str, Any]:
+        document = ParcleMemoryDocument(
+            id=f"employee-portal:incident:{state['run_id']}",
+            title=f"Incident decision — {state['incident'][:120]}",
+            content=state["decision_entry"],
+            reference=state["decision_log_path"],
+            metadata={
+                "repository": "employee-portal",
+                "content_type": "incident_decision",
+                "run_id": state["run_id"],
+                "branch_name": state["branch_name"],
+                "confidence_score": state["confidence_score"],
+                "recorded_at": _utc_now().isoformat(),
+            },
+        )
+        return {"parcle_decision_sync": services.parcle.upsert_documents([document])}
 
     def commit_changes(state: AgentState) -> dict[str, Any]:
         summary = " ".join(state["incident"].split())[:72]
@@ -144,13 +162,14 @@ def build_nodes(services: WorkflowServices) -> dict[str, Node]:
 
     return {
         "receive_incident": receive_incident,
-        "search_parcel": search_parcel,
+        "search_parcle": search_parcle,
         "analyze_incident": analyze_incident,
         "generate_enterpro_prompt": generate_enterpro_prompt,
         "create_git_branch": create_git_branch,
         "execute_enterpro": execute_enterpro,
         "validate_changes": validate_changes,
         "update_decision_log": update_decision_log,
+        "sync_decision_to_parcle": sync_decision_to_parcle,
         "commit_changes": commit_changes,
         "return_summary": return_summary,
     }

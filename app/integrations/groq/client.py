@@ -4,7 +4,7 @@ import logging
 
 from langchain_groq import ChatGroq
 
-from app.models.incident import IncidentAnalysis, ParcelDocument
+from app.models.incident import IncidentAnalysis, ParcleDocument
 from app.prompts.incident import ANALYSIS_SYSTEM_PROMPT, ENTERPRO_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -24,10 +24,10 @@ class GroqIncidentAnalyzer:
             raise GroqIntegrationError("GROQ_API_KEY is not configured")
         return ChatGroq(api_key=self.api_key, model=self.model, temperature=0)
 
-    def analyze(self, incident: str, documents: list[ParcelDocument]) -> IncidentAnalysis:
+    def analyze(self, incident: str, documents: list[ParcleDocument]) -> IncidentAnalysis:
         context = "\n\n".join(
             f"[{doc.title}] ({doc.reference or 'no reference'})\n{doc.content}" for doc in documents
-        ) or "No documentation was returned by Parcel. Clearly account for this uncertainty."
+        ) or "No documentation was returned by Parcle. Clearly account for this uncertainty."
         try:
             structured_llm = self._llm().with_structured_output(IncidentAnalysis)
             return structured_llm.invoke(
@@ -38,7 +38,7 @@ class GroqIncidentAnalyzer:
             raise GroqIntegrationError(f"Groq incident analysis failed: {exc}") from exc
 
     def generate_enterpro_prompt(
-        self, incident: str, analysis: IncidentAnalysis, documents: list[ParcelDocument]
+        self, incident: str, analysis: IncidentAnalysis, documents: list[ParcleDocument]
     ) -> str:
         references = ", ".join(filter(None, (doc.reference for doc in documents))) or "None"
         try:

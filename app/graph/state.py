@@ -9,7 +9,7 @@ class AgentState(TypedDict, total=False):
     incident: str
     run_id: str
     started_at: str
-    parcel_documents: list[dict[str, Any]]
+    parcle_documents: list[dict[str, Any]]
     memory_references: list[str]
     root_cause_hypothesis: str
     affected_components: list[str]
@@ -24,6 +24,8 @@ class AgentState(TypedDict, total=False):
     files_modified: list[str]
     validation: dict[str, Any]
     decision_log_path: str
+    decision_entry: str
+    parcle_decision_sync: dict[str, Any]
     commit_hash: str
     documentation_updated: bool
     summary: str

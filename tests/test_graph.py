@@ -5,18 +5,22 @@ from pathlib import Path
 
 from app.config import Settings
 from app.graph.workflow import NODE_ORDER, create_graph
-from app.models.incident import IncidentAnalysis, ParcelDocument
+from app.models.incident import IncidentAnalysis, ParcleDocument
 from app.services.container import WorkflowServices
 
 
-class FakeParcel:
-    def search(self, query: str, limit: int = 8) -> list[ParcelDocument]:
+class FakeParcle:
+    def search(self, query: str, limit: int = 8) -> list[ParcleDocument]:
         assert "profile" in query
-        return [ParcelDocument(title="Profile API", content="Validation changed", reference="docs/profile.md")]
+        return [ParcleDocument(title="Profile API", content="Validation changed", reference="docs/profile.md")]
+
+    def upsert_documents(self, documents):
+        assert documents[0].metadata["content_type"] == "incident_decision"
+        return {"location": "test-memory", "documents_submitted": len(documents)}
 
 
 class FakeGroq:
-    def analyze(self, incident: str, documents: list[ParcelDocument]) -> IncidentAnalysis:
+    def analyze(self, incident: str, documents: list[ParcleDocument]) -> IncidentAnalysis:
         return IncidentAnalysis(
             root_cause_hypothesis="Profile validation mismatch",
             affected_components=["profile-api"],
@@ -54,9 +58,11 @@ def test_complete_graph_creates_local_branch_and_commit(tmp_path: Path):
     config = Settings(
         groq_api_key=None,
         groq_model="test",
-        parcel_base_url=None,
-        parcel_search_path="/search",
-        parcel_api_key=None,
+        parcle_base_url=None,
+        parcle_search_path="/search",
+        parcle_upsert_path="/documents/upsert",
+        parcle_api_key=None,
+        parcle_namespace="employee-portal",
         enterpro_url=None,
         enterpro_api_key=None,
         employee_portal_path=tmp_path,
@@ -65,7 +71,7 @@ def test_complete_graph_creates_local_branch_and_commit(tmp_path: Path):
         enable_git_push=False,
         log_level="INFO",
     )
-    services = WorkflowServices(FakeParcel(), FakeGroq(), FakeEnterPro(), config)  # type: ignore[arg-type]
+    services = WorkflowServices(FakeParcle(), FakeGroq(), FakeEnterPro(), config)  # type: ignore[arg-type]
 
     result = create_graph(services).invoke({"incident": "Users cannot update profile"})
 
@@ -80,7 +86,7 @@ def test_complete_graph_creates_local_branch_and_commit(tmp_path: Path):
 
 def test_workflow_has_all_required_nodes():
     assert NODE_ORDER == [
-        "receive_incident", "search_parcel", "analyze_incident", "generate_enterpro_prompt",
+        "receive_incident", "search_parcle", "analyze_incident", "generate_enterpro_prompt",
         "create_git_branch", "execute_enterpro", "validate_changes", "update_decision_log",
-        "commit_changes", "return_summary",
+        "sync_decision_to_parcle", "commit_changes", "return_summary",
     ]

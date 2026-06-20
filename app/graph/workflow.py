@@ -8,13 +8,14 @@ from app.services.container import WorkflowServices, build_services
 
 NODE_ORDER = [
     "receive_incident",
-    "search_parcel",
+    "search_parcle",
     "analyze_incident",
     "generate_enterpro_prompt",
     "create_git_branch",
     "execute_enterpro",
     "validate_changes",
     "update_decision_log",
+    "sync_decision_to_parcle",
     "commit_changes",
     "return_summary",
 ]

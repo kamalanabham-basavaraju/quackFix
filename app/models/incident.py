@@ -9,10 +9,18 @@ class IncidentRequest(BaseModel):
     incident: str = Field(min_length=3, max_length=20_000)
 
 
-class ParcelDocument(BaseModel):
+class ParcleDocument(BaseModel):
     title: str = "Untitled"
     content: str
     reference: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ParcleMemoryDocument(BaseModel):
+    id: str
+    title: str
+    content: str
+    reference: str
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
