@@ -4,6 +4,11 @@
 venv
 .venv
 node_modules
+frontend/node_modules
+frontend/.next
+frontend/.env*.local
+backend/.env
+backend/.pytest_cache
 
 __pycache__
 

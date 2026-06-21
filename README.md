@@ -202,6 +202,73 @@ The response contains `branch_name`, `files_modified`, `documentation_updated`, 
 `commit_hash`, `pull_request_url`, validation details, and a summary. Failures from external integrations or
 validation return an error before PR creation.
 
+## Quackfix Portal
+
+This repository also includes a full-stack incident portal around the LangGraph service. The portal does not
+reimplement the graph; it calls the existing LangGraph endpoint at `POST /api/v1/incidents/resolve`.
+
+Services:
+
+- `incident-agent`: existing LangGraph backend on `http://localhost:8001`.
+- `portal-backend`: FastAPI, SQLAlchemy, Alembic, and PostgreSQL integration on `http://localhost:8002`.
+- `portal-frontend`: Next.js 15, TypeScript, Tailwind, ShadCN-style components, and React Query on
+  `http://localhost:3000`.
+- `postgres`: persistent Quackfix conversation/execution storage on port `5432`.
+
+Portal features:
+
+- Chat-style incident submission with permanent conversation history.
+- Live agent thinking/status timeline over WebSockets.
+- Dashboard metrics and charts for total incidents, successful/failed resolutions, open PRs, and duration.
+- Incident detail pages with branch, commit, files changed, validation, docs update status, and PR links.
+- Audit export as JSON.
+- Global search across incident titles, user prompts, and resolution summaries.
+- Diagnostics page with a Produck auto-fetch switch and manual poll trigger.
+- In the full-stack Compose setup, the LangGraph service's own Produck scheduler is disabled so this switch is the
+  single control point for automatic Produck polling.
+
+Portal backend APIs:
+
+```text
+POST /api/conversations
+GET  /api/conversations
+GET  /api/conversations/{id}
+POST /api/incidents/submit
+GET  /api/executions/{id}
+WS   /ws/executions/{id}
+GET  /api/dashboard
+GET  /api/search?q=...
+GET  /api/conversations/{id}/export
+GET  /api/settings/produck-fetch
+PUT  /api/settings/produck-fetch
+POST /api/produck/poll
+```
+
+Useful portal environment variables:
+
+```dotenv
+DATABASE_URL=postgresql+psycopg2://postgres:postgres@localhost:5432/quackfix
+LANGGRAPH_URL=http://localhost:8001
+CORS_ORIGINS=http://localhost:3000
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8002
+```
+
+Run the full stack with Docker:
+
+```bash
+docker compose up --build
+```
+
+Open:
+
+- Quackfix UI: `http://localhost:3000`
+- Portal API docs: `http://localhost:8002/docs`
+- LangGraph API docs: `http://localhost:8001/docs`
+
+The repository that Enter Pro edits still comes from `EMPLOYEE_PORTAL_PATH`/`EMPLOYEE_PORTAL_PATH_HOST`. The portal
+backend only stores Quackfix conversations and calls the LangGraph service, which performs Parcle search, Enter Pro
+execution, validation, commits, and PR creation.
+
 ## Testing and visualization
 
 ```bash

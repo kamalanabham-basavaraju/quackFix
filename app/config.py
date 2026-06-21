@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -65,6 +65,24 @@ class Settings:
     produck_close_on_success: bool = False
     produck_mcp_timeout: float = 60
     log_level: str = "INFO"
+
+    def with_employee_portal_path(self, value: str | None) -> "Settings":
+        if not value:
+            return self
+        employee_portal_path = Path(value).expanduser().resolve()
+        return replace(
+            self,
+            employee_portal_path=employee_portal_path,
+            produck_legacy_state_path=(
+                employee_portal_path / self.parcle_memory_dir / ".state/produck_ticket_state.json"
+            ).resolve(),
+            produck_output_dir=_resolve_memory_path(
+                os.getenv("PRODUCK_OUTPUT_DIR"),
+                employee_portal_path,
+                self.parcle_memory_dir,
+                "produck_tickets",
+            ),
+        )
 
     @classmethod
     def from_env(cls) -> "Settings":

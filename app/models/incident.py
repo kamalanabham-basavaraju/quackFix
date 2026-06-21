@@ -8,6 +8,7 @@ from typing import Literal
 
 class IncidentRequest(BaseModel):
     incident: str = Field(min_length=3, max_length=20_000)
+    employee_portal_path: str | None = None
 
 
 class ParcleDocument(BaseModel):
