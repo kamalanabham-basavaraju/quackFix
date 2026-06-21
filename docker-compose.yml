@@ -1,4 +1,20 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: quackfix
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - quackfix-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d quackfix"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   incident-agent:
     build: .
     ports:
@@ -8,6 +24,36 @@ services:
     environment:
       EMPLOYEE_PORTAL_PATH: /workspace/employee-portal
       ENABLE_GIT_PUSH: ${ENABLE_GIT_PUSH:-false}
+      PRODUCK_POLL_ENABLED: "false"
     volumes:
       - ${EMPLOYEE_PORTAL_PATH_HOST:?Set EMPLOYEE_PORTAL_PATH_HOST}:/workspace/employee-portal
     restart: unless-stopped
+
+  portal-backend:
+    build: ./backend
+    ports:
+      - "8002:8002"
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres:5432/quackfix
+      LANGGRAPH_URL: http://incident-agent:8001
+      CORS_ORIGINS: http://localhost:3000
+      PRODUCK_POLL_INTERVAL_SECONDS: ${PRODUCK_POLL_INTERVAL_SECONDS:-120}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      incident-agent:
+        condition: service_started
+    restart: unless-stopped
+
+  portal-frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8002
+    depends_on:
+      - portal-backend
+    restart: unless-stopped
+
+volumes:
+  quackfix-postgres:
