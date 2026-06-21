@@ -6,6 +6,7 @@ from app.config import Settings, settings
 from app.integrations.enterpro import EnterProClient
 from app.integrations.groq import GroqIncidentAnalyzer
 from app.integrations.parcle import ParcleClient
+from app.integrations.produck.client import ProduckClient
 
 
 @dataclass
@@ -31,4 +32,16 @@ def build_services(config: Settings = settings) -> WorkflowServices:
             config.external_request_timeout,
         ),
         settings=config,
+    )
+
+
+def build_produck_client(config: Settings = settings, groq: GroqIncidentAnalyzer | None = None) -> ProduckClient:
+    return ProduckClient(
+        url=config.produck_mcp_url,
+        token=config.produck_mcp_token,
+        output_dir=config.produck_output_dir,
+        timeout=config.produck_mcp_timeout,
+        groq=groq,
+        search_domain=config.produck_search_domain,
+        max_tickets_per_poll=config.produck_max_tickets_per_poll,
     )

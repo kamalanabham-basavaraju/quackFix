@@ -7,6 +7,7 @@ from typing import Any, TypedDict
 
 class AgentState(TypedDict, total=False):
     incident: str
+    parcle_query: str
     run_id: str
     started_at: str
     request_kind: str
@@ -37,3 +38,6 @@ class AgentState(TypedDict, total=False):
     documentation_updated: bool
     summary: str
     errors: list[str]
+    produck_ticket_id: str
+    produck_payload: dict[str, Any]
+    produck_brief: str

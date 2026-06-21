@@ -11,7 +11,11 @@ from app.services.container import WorkflowServices
 
 
 class FakeParcle:
+    def __init__(self):
+        self.queries = []
+
     def search(self, query: str, limit: int = 8) -> list[ParcleDocument]:
+        self.queries.append(query)
         return [ParcleDocument(title="Profile API", content="Validation changed", reference="docs/profile.md")]
 
     def ingest_documents(self, documents):
@@ -95,7 +99,8 @@ def test_complete_graph_creates_local_branch_and_commit(tmp_path: Path):
         github_api_url="https://api.github.com",
         log_level="INFO",
     )
-    services = WorkflowServices(FakeParcle(), FakeGroq(), FakeEnterPro(), config)  # type: ignore[arg-type]
+    parcle = FakeParcle()
+    services = WorkflowServices(parcle, FakeGroq(), FakeEnterPro(), config)  # type: ignore[arg-type]
 
     result = create_graph(services).invoke({"incident": "Users cannot update profile"})
 
@@ -107,18 +112,20 @@ def test_complete_graph_creates_local_branch_and_commit(tmp_path: Path):
     assert result["validation"]["passed"] is True
     assert "Pull request: not created" in result["summary"]
     assert _run(tmp_path, "remote") == ""
+    assert parcle.queries == ["Users cannot update profile"]
 
 
 def test_workflow_has_all_required_nodes():
     assert NODE_ORDER == [
         "receive_incident", "search_parcle", "classify_request", "return_information",
         "analyze_incident", "generate_enterpro_prompt",
+        "preflight_git_push",
         "create_git_branch", "execute_enterpro", "validate_changes", "repair_validation", "update_decision_log",
         "sync_decision_to_parcle", "commit_changes", "push_branch", "create_pull_request",
         "return_summary",
     ]
     assert CODE_CHANGE_ORDER == [
-        "analyze_incident", "generate_enterpro_prompt", "create_git_branch", "execute_enterpro",
+        "analyze_incident", "generate_enterpro_prompt", "preflight_git_push", "create_git_branch", "execute_enterpro",
         "validate_changes", "repair_validation", "update_decision_log", "sync_decision_to_parcle", "commit_changes",
         "push_branch", "create_pull_request", "return_summary",
     ]
@@ -164,3 +171,37 @@ def test_informational_request_skips_enter_and_git(tmp_path: Path):
     assert result["validation"]["reason"] == "informational_request"
     assert result["validation"]["classification_reasoning"] == "The user asked a read-only repo question."
     assert "Employee Tracker service" in result["summary"]
+
+
+def test_graph_uses_explicit_parcle_query(tmp_path: Path):
+    config = Settings(
+        groq_api_key=None,
+        groq_model="test",
+        parcle_api_key=None,
+        parcle_user_id="system_user",
+        enterpro_url=None,
+        enterpro_api_key=None,
+        enterpro_command=None,
+        enterpro_workspace_id=None,
+        employee_portal_path=tmp_path,
+        parcle_memory_dir="docs/parcle_memory",
+        external_request_timeout=1,
+        validation_command="git status --short",
+        require_clean_target_repo=True,
+        enable_git_push=False,
+        github_token=None,
+        github_base_branch="main",
+        github_api_url="https://api.github.com",
+        log_level="INFO",
+    )
+    parcle = FakeParcle()
+    services = WorkflowServices(parcle, FakeGroq(), FailingEnterPro(), config)  # type: ignore[arg-type]
+
+    create_graph(services).invoke(
+        {
+            "incident": "What is this repo about?",
+            "parcle_query": "route /app/mcp color feedback anchor x 1209 y 697",
+        }
+    )
+
+    assert parcle.queries == ["route /app/mcp color feedback anchor x 1209 y 697"]

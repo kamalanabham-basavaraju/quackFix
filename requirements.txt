@@ -2,6 +2,7 @@ fastapi>=0.115,<1
 langchain>=0.3,<2
 langchain-groq>=0.2,<2
 langgraph>=0.2,<2
+mcp>=1,<2
 parcle>=0.1,<1
 pydantic>=2.9,<3
 python-dotenv>=1,<2

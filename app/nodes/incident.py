@@ -88,6 +88,27 @@ def _information_summary(state: AgentState) -> str:
     return f"{answer}{suffix}"
 
 
+def _markdown_parcle_documents(documents: list[ParcleDocument]) -> str:
+    if not documents:
+        return "No Parcle documents were returned."
+    lines: list[str] = []
+    for index, document in enumerate(documents, start=1):
+        excerpt = document.content.strip()
+        if len(excerpt) > 3000:
+            excerpt = excerpt[:3000] + "\n...[truncated]"
+        lines.extend(
+            [
+                f"### Result {index}: {document.title}",
+                f"- Reference: {document.reference or 'none'}",
+                f"- Metadata: `{document.metadata}`",
+                "",
+                excerpt,
+                "",
+            ]
+        )
+    return "\n".join(lines).strip()
+
+
 def _enterpro_execution_prompt(prompt: str, project_path: Path, memory_dir: str = "docs/parcle_memory") -> str:
     return f"""{prompt}
 
@@ -154,19 +175,37 @@ def build_nodes(services: WorkflowServices) -> dict[str, Node]:
         if not incident:
             raise ValueError("incident must not be empty")
         logger.info("Incident run started", extra={"incident_run_id": state.get("run_id")})
-        return {
+        next_state = {
             "incident": incident,
             "run_id": state.get("run_id") or str(uuid4()),
             "started_at": state.get("started_at") or _utc_now().isoformat(),
             "project_path": str(project_path),
             "errors": [],
         }
+        if state.get("parcle_query"):
+            next_state["parcle_query"] = state["parcle_query"]
+        if state.get("produck_ticket_id"):
+            next_state["produck_ticket_id"] = state["produck_ticket_id"]
+            next_state["produck_payload"] = state.get("produck_payload", {})
+            next_state["produck_brief"] = state.get("produck_brief", "")
+        return next_state
 
     def search_parcle(state: AgentState) -> dict[str, Any]:
-        documents = services.parcle.search(state["incident"])
+        query = state.get("parcle_query") or state["incident"]
+        documents = services.parcle.search(query)
+        logger.info(
+            "Parcle memory retrieved",
+            extra={
+                "incident_run_id": state.get("run_id"),
+                "query_chars": len(query),
+                "document_count": len(documents),
+                "references": [document.reference for document in documents if document.reference],
+            },
+        )
         return {
             "parcle_documents": [document.model_dump(mode="json") for document in documents],
             "memory_references": [document.reference for document in documents if document.reference],
+            "parcle_query": query,
         }
 
     def classify_request(state: AgentState) -> dict[str, Any]:
@@ -208,7 +247,19 @@ def build_nodes(services: WorkflowServices) -> dict[str, Node]:
     def generate_enterpro_prompt(state: AgentState) -> dict[str, Any]:
         analysis = IncidentAnalysis.model_validate(state)
         prompt = services.groq.generate_enterpro_prompt(state["incident"], analysis, _documents(state))
+        logger.info(
+            "Enter Pro prompt generated",
+            extra={"incident_run_id": state.get("run_id"), "prompt_chars": len(prompt)},
+        )
         return {"enterpro_prompt": prompt}
+
+    def preflight_git_push(state: AgentState) -> dict[str, Any]:
+        if not services.settings.enable_git_push:
+            return {"git_preflight": {"skipped": True, "reason": "ENABLE_GIT_PUSH is false"}}
+        if not services.settings.github_token:
+            raise RuntimeError("GITHUB_TOKEN or GH_TOKEN is required before running an automated code-change flow")
+        git.assert_push_access(services.settings.github_token, services.settings.github_api_url)
+        return {"git_preflight": {"skipped": False, "result": "push access verified"}}
 
     def create_git_branch(state: AgentState) -> dict[str, Any]:
         branch_source = state.get("root_cause_hypothesis") or state["incident"]
@@ -303,6 +354,19 @@ def build_nodes(services: WorkflowServices) -> dict[str, Node]:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         incident_dir.mkdir(parents=True, exist_ok=True)
         references = state.get("memory_references") or ["No Parcle documentation found"]
+        parcle_query = state.get("parcle_query") or state["incident"]
+        parcle_retrieval = _markdown_parcle_documents(_documents(state))
+        enter_prompt = state.get("enterpro_prompt", "")
+        produck_section = ""
+        if state.get("produck_ticket_id"):
+            produck_section = f"""
+## Produck Source
+
+**Ticket ID:** {state.get('produck_ticket_id')}
+
+### Brief
+{state.get('produck_brief', '')}
+"""
         file_reasons = "\n".join(f"* `{name}` - changed by Enter Pro to implement or verify the remediation." for name in state["files_modified"])
         challenges = []
         validation = state.get("validation", {})
@@ -332,6 +396,12 @@ def build_nodes(services: WorkflowServices) -> dict[str, Node]:
 **Files Modified:**
 {file_reasons}
 
+**Parcle Query:** Captured in `{incident_path.relative_to(project_path).as_posix()}`.
+
+**Parcle Retrieval:** Captured in `{incident_path.relative_to(project_path).as_posix()}`.
+
+**Enter Pro Prompt:** Captured in `{incident_path.relative_to(project_path).as_posix()}`.
+
 **Challenges:**
 {challenges_text}
 
@@ -359,6 +429,26 @@ def build_nodes(services: WorkflowServices) -> dict[str, Node]:
 
 ## Reasoning
 {state['hypothesis_reasoning']}
+
+{produck_section}
+
+## Parcle Query
+```text
+{parcle_query}
+```
+
+## Parcle Retrieval
+{parcle_retrieval}
+
+## Enter Pro Prompt
+```text
+{enter_prompt}
+```
+
+## Enter Pro Result
+```json
+{enter_result}
+```
 
 ## Validation
 ```json
@@ -404,7 +494,7 @@ def build_nodes(services: WorkflowServices) -> dict[str, Node]:
         return {"parcle_decision_sync": {"file": result, "dialog": dialog_result}}
 
     def commit_changes(state: AgentState) -> dict[str, Any]:
-        summary = " ".join(state["incident"].split())[:72]
+        summary = " ".join((state.get("root_cause_hypothesis") or state["incident"]).split())[:72]
         subprocess.run(["git", "config", "--local", "user.email", "agent@langgraph.local"], cwd=project_path)
         subprocess.run(["git", "config", "--local", "user.name", "LangGraph Agent"], cwd=project_path)
         commit_hash = git.commit_all(f"AI Incident Resolution: {summary}")
@@ -423,12 +513,31 @@ def build_nodes(services: WorkflowServices) -> dict[str, Node]:
             return {"pull_request_url": None}
         if not services.settings.github_token:
             raise RuntimeError("GITHUB_TOKEN or GH_TOKEN is required to create pull requests")
-        title = f"AI Incident Resolution: {state['incident'][:90]}"
+        title_source = state.get("root_cause_hypothesis") or state["incident"]
+        title = f"AI Incident Resolution: {title_source[:90]}"
         body = f"""## Incident
 {state['incident']}
 
+## Change Brief
+{state.get('root_cause_hypothesis', 'No hypothesis recorded.')}
+
+## Reasoning
+{state.get('hypothesis_reasoning', 'No reasoning recorded.')}
+
+## Remediation Strategy
+{chr(10).join(f'* {step}' for step in state.get('remediation_strategy', [])) or '* No remediation strategy recorded.'}
+
 ## Files Modified
 {chr(10).join(f'* `{name}`' for name in state['files_modified'])}
+
+## Parcle Evidence
+Query:
+```text
+{state.get('parcle_query') or state['incident']}
+```
+
+References:
+{chr(10).join(f'* {reference}' for reference in state.get('memory_references', [])) or '* No Parcle references returned.'}
 
 ## Incident Record
 `{state['incident_record_path']}`
@@ -461,6 +570,7 @@ def build_nodes(services: WorkflowServices) -> dict[str, Node]:
         "return_information": return_information,
         "analyze_incident": analyze_incident,
         "generate_enterpro_prompt": generate_enterpro_prompt,
+        "preflight_git_push": preflight_git_push,
         "create_git_branch": create_git_branch,
         "execute_enterpro": execute_enterpro,
         "validate_changes": validate_changes,

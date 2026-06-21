@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import logging
+import json
+from typing import Any
 
 from langchain_groq import ChatGroq
 
 from app.models.incident import IncidentAnalysis, ParcleDocument, RequestClassification
+from app.models.produck import NormalizedProduckRequest, ProduckTicket
+from app.integrations.produck.ticket_mapper import compact_ticket_evidence
 from app.prompts.incident import (
     ANALYSIS_SYSTEM_PROMPT,
     ENTERPRO_SYSTEM_PROMPT,
+    PRODUCK_NORMALIZATION_SYSTEM_PROMPT,
+    PRODUCK_TOOL_SELECTION_SYSTEM_PROMPT,
     REQUEST_CLASSIFICATION_SYSTEM_PROMPT,
 )
 
@@ -85,3 +91,37 @@ class GroqIncidentAnalyzer:
         except Exception as exc:
             logger.exception("Groq Enter Pro prompt generation failed")
             raise GroqIntegrationError(f"Groq prompt generation failed: {exc}") from exc
+
+    def normalize_produck_ticket(self, ticket: ProduckTicket) -> NormalizedProduckRequest:
+        evidence = compact_ticket_evidence(ticket)
+        try:
+            structured_llm = self._llm().with_structured_output(NormalizedProduckRequest)
+            return structured_llm.invoke(
+                [
+                    ("system", PRODUCK_NORMALIZATION_SYSTEM_PROMPT),
+                    (
+                        "human",
+                        "Compact Produck evidence. Use only this packet; do not assume hidden DOM details.\n"
+                        f"{json.dumps(evidence, indent=2, ensure_ascii=True)}",
+                    ),
+                ]
+            )
+        except Exception as exc:
+            logger.exception("Groq Produck normalization failed")
+            raise GroqIntegrationError(f"Groq Produck normalization failed: {exc}") from exc
+
+    def choose_produck_tool(self, tools: list[dict[str, Any]], purpose: str) -> str:
+        try:
+            response = self._llm().invoke(
+                [
+                    ("system", PRODUCK_TOOL_SELECTION_SYSTEM_PROMPT),
+                    (
+                        "human",
+                        f"Purpose: {purpose}\n\nAvailable tools:\n{tools}",
+                    ),
+                ]
+            )
+            return str(response.content).strip().strip('"')
+        except Exception:
+            logger.exception("Groq Produck tool selection failed")
+            return ""

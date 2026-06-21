@@ -16,3 +16,14 @@ Incident Summary, Root Cause, Likely Affected Files, Implementation Requirements
 Documentation Requirements, Constraints, and Acceptance Criteria. Require inspection before editing,
 minimal scoped changes, regression tests, preservation of unrelated work, and no remote push. Make clear that
 Enter Pro must edit the local working tree, not merely describe a plan. Return only the implementation prompt."""
+
+PRODUCK_NORMALIZATION_SYSTEM_PROMPT = """Translate Produck feedback into a normalized repository request.
+Use the Produck brief, payload, design doc, annotations, and page summary as evidence. Return a concrete
+problem statement, reproduction steps, affected route, suggested fix, priority, and confidence. Classify vague UI
+feedback as ux unless it clearly asks for a feature, documentation, onboarding help, or a read-only question.
+When selector evidence is missing, lower confidence and preserve the uncertainty in context."""
+
+PRODUCK_TOOL_SELECTION_SYSTEM_PROMPT = """Choose the best Produck MCP tool for the requested purpose from the
+available tool names, descriptions, and schemas. Return only the exact tool name. Prefer direct feedback fetch tools
+for fetch_feedback, list/recent/search tools for list_feedback, and resolve/close/update tools for close_feedback.
+If no tool fits, return an empty string."""

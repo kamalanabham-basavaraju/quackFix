@@ -36,6 +36,13 @@ under `PARCLE_MEMORY_DIR/incidents/` and ingested into Parcle. At runtime, every
 decides from the request plus Parcle response whether this is an informational answer or a repo-level code change.
 Enter is called only for repo-level code-change requests.
 
+Produck can also act as an input source. The agent connects to Produck's MCP server, discovers available tools,
+searches visible open feedback tickets with `search_feedback`, fetches full ticket contents with `get_feedback`,
+writes `agent_payload.json` and `agent_brief.md` under `PRODUCK_OUTPUT_DIR`, stores the ticket context in Parcle,
+asks Groq to normalize the feedback into an incident request, and then invokes the same LangGraph flow used by
+Swagger. The scheduler dedupes feedback by fingerprint in `PRODUCK_STATE_PATH`, so unchanged tickets are not
+reprocessed on every poll.
+
 ## Configuration
 
 Copy `.env.example` to `.env` and provide the real Parcle, Groq, Enter Pro, and Employee Portal values. Important:
@@ -45,8 +52,20 @@ Copy `.env.example` to `.env` and provide the real Parcle, Groq, Enter Pro, and 
 - `VALIDATION_COMMAND` is run inside that repository after Enter Pro edits it.
 - `REQUIRE_CLEAN_TARGET_REPO` defaults to `false`, allowing the workflow to continue from prior incident edits that are still uncommitted.
 - `ENABLE_GIT_PUSH=true` pushes the incident branch after commit.
-- `GITHUB_TOKEN` or `GH_TOKEN` is required to create a pull request.
+- `GITHUB_TOKEN` or `GH_TOKEN` is required to create a pull request. Fine-grained GitHub tokens need repository
+  access to the Employee Portal repo plus `Contents: Read and write` and `Pull requests: Read and write`.
 - `GITHUB_BASE_BRANCH` defaults to `main`.
+- `PRODUCK_MCP_TOKEN` is required for Produck MCP access.
+- `PRODUCK_POLL_ENABLED=true` starts the background Produck poller.
+- `PRODUCK_POLL_INTERVAL_SECONDS=120` is suitable for development; use a higher value for production.
+- `PRODUCK_MAX_TICKETS_PER_POLL=1` keeps polling responsive by processing one full ticket per poll.
+- `PRODUCK_SEARCH_DOMAIN` optionally filters Produck polling to one website domain.
+- `PRODUCK_FEEDBACK_IDS` is only a dev fallback if Produck's open-ticket search tool is unavailable or returns no IDs.
+- Relative `PRODUCK_OUTPUT_DIR` values are stored under `<EMPLOYEE_PORTAL_PATH>/<PARCLE_MEMORY_DIR>/` so ticket
+  artifacts persist with the target repo.
+- Relative `PRODUCK_STATE_PATH` values are stored under the runtime user's home directory, not the target repo. This
+  dedupe file prevents repeated processing without leaving post-PR working-tree changes.
+- `PRODUCK_CLOSE_ON_SUCCESS=false` by default. Leave it off if Produck status updates are slow or unsupported.
 - `PARCLE_API_KEY` is used by the official `parcle` SDK.
 - `PARCLE_USER_ID` defaults to `system_user`. Seed this user once with the Employee Portal documentation, then every incident search and decision sync uses the same memory user.
 - `ENTERPRO_COMMAND` optionally overrides the Enter Code command. Leave it blank to use the built-in command:
@@ -83,6 +102,10 @@ Verify the command from the same shell/container that will run LangGraph:
 ```bash
 python -m scripts.check_enter
 ```
+
+For automatic PR creation in Docker, set `ENABLE_GIT_PUSH=true` in `.env`. The compose file now respects that value
+instead of forcing it off. The service pushes with the configured `GITHUB_TOKEN` using non-interactive HTTPS auth, then
+calls the GitHub API to create or reuse an open pull request.
 
 When running with Docker, the Enter CLI must be installed inside the image/container. A CLI installed only on the host
 machine is not visible to the `incident-agent` container. While wiring up Enter for the first time, running locally with
@@ -155,6 +178,25 @@ curl -X POST http://localhost:8001/api/v1/incidents/resolve \
   -H "Content-Type: application/json" \
   -d '{"incident":"Users cannot update their profile after the validation rollout"}'
 ```
+
+Produck operations:
+
+```bash
+curl http://localhost:8001/api/v1/produck/tools
+
+curl -X POST http://localhost:8001/api/v1/produck/tickets/<feedback-id>/trigger
+
+curl -X POST http://localhost:8001/api/v1/produck/poll
+
+curl http://localhost:8001/api/v1/produck/state
+```
+
+`/produck/tickets/{feedback_id}/trigger` is the direct path for a known Produck feedback ID. `/produck/poll` searches
+open Produck feedback tickets, asks for `status=open` when Produck's MCP schema supports it, skips spam/non-open
+summaries when status metadata exists, then processes up to `PRODUCK_MAX_TICKETS_PER_POLL` full tickets per poll.
+If Produck exposes an update/status MCP tool and `PRODUCK_CLOSE_ON_SUCCESS=true`, the scheduler attempts status
+updates.
+`PRODUCK_FEEDBACK_IDS` is used only as a fallback when open-ticket search is unavailable.
 
 The response contains `branch_name`, `files_modified`, `documentation_updated`, `incident_record_path`,
 `commit_hash`, `pull_request_url`, validation details, and a summary. Failures from external integrations or

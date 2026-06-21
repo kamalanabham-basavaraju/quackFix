@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import os
 import re
 import shutil
 import subprocess
@@ -9,6 +10,15 @@ from pathlib import Path
 from typing import Any
 
 import requests
+
+_NO_PROMPT_ENV = {
+    **os.environ,
+    "GIT_TERMINAL_PROMPT": "0",
+    "GCM_INTERACTIVE": "never",
+    "GIT_ASKPASS": "echo",
+}
+
+DEFAULT_GIT_TIMEOUT = 60  # seconds
 
 
 class GitError(RuntimeError):
@@ -20,13 +30,27 @@ class GitClient:
         self.project_path = project_path
         self.require_clean = require_clean
 
-    def _run(self, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    def _run(
+        self, *args: str, check: bool = True, timeout: int = DEFAULT_GIT_TIMEOUT
+    ) -> subprocess.CompletedProcess[str]:
         if shutil.which("git") is None:
             raise GitError("git executable is not installed or not available on PATH")
         try:
             return subprocess.run(
-                ["git", *args], cwd=self.project_path, text=True, capture_output=True, check=check
+                ["git", *args],
+                cwd=self.project_path,
+                text=True,
+                capture_output=True,
+                check=check,
+                timeout=timeout,
+                env=_NO_PROMPT_ENV,
             )
+        except subprocess.TimeoutExpired as exc:
+            raise GitError(
+                f"git {' '.join(args)} timed out after {timeout}s. This usually means git tried an "
+                f"interactive credential prompt (terminal or GUI/browser login via Git Credential "
+                f"Manager) that an automated process can never complete."
+            ) from exc
         except (OSError, subprocess.CalledProcessError) as exc:
             stderr = getattr(exc, "stderr", None) or str(exc)
             if "dubious ownership" in stderr and "safe.directory" in stderr:
@@ -98,8 +122,16 @@ class GitClient:
 
     def push_branch(self, branch_name: str, token: str | None = None) -> None:
         if not token:
-            self._run("push", "--set-upstream", "origin", branch_name)
-            return
+            # No token means git falls back to whatever local credential helper is
+            # configured. On Windows that's typically Git Credential Manager, which
+            # will try to pop a browser/GUI login for an unattended process - that
+            # login can never be completed, so the push just hangs. In an automated
+            # pipeline this should be a hard, immediate failure instead.
+            raise GitError(
+                "push_branch() was called without a token. An automated push cannot rely on an "
+                "interactive credential helper (e.g. Git Credential Manager on Windows), as it will "
+                "hang waiting on a login that can't be completed. Pass a GitHub token explicitly."
+            )
         auth = base64.b64encode(f"x-access-token:{token}".encode("utf-8")).decode("ascii")
         try:
             subprocess.run(
@@ -116,10 +148,61 @@ class GitClient:
                 text=True,
                 capture_output=True,
                 check=True,
+                timeout=DEFAULT_GIT_TIMEOUT,
+                env=_NO_PROMPT_ENV,
             )
+        except subprocess.TimeoutExpired as exc:
+            raise GitError(
+                f"git push --set-upstream origin {branch_name} timed out after {DEFAULT_GIT_TIMEOUT}s"
+            ) from exc
         except (OSError, subprocess.CalledProcessError) as exc:
             stderr = getattr(exc, "stderr", None) or str(exc)
+            if "The requested URL returned error: 403" in stderr or "Permission to" in stderr:
+                raise GitError(
+                    "GitHub rejected the branch push with 403. Check that GITHUB_TOKEN has write access to "
+                    "this repository. Fine-grained tokens need Repository permissions: Contents read/write "
+                    "and Pull requests read/write for the employee_portal repo."
+                ) from exc
             raise GitError(f"git push --set-upstream origin {branch_name} failed: {stderr.strip()}") from exc
+
+    def assert_push_access(
+        self,
+        token: str,
+        api_url: str = "https://api.github.com",
+    ) -> None:
+        owner, repo = self._github_owner_repo()
+        url = f"{api_url.rstrip('/')}/repos/{owner}/{repo}"
+        try:
+            response = requests.get(
+                url,
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {token}",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                timeout=30,
+            )
+        except requests.RequestException as exc:
+            raise GitError(f"GitHub token permission check failed: {exc}") from exc
+        if response.status_code in {401, 403, 404}:
+            raise GitError(
+                f"GitHub token cannot access {owner}/{repo} with write permissions "
+                f"(GitHub API returned {response.status_code}). Fine-grained tokens need Repository "
+                "permissions: Contents read/write and Pull requests read/write for this repo."
+            )
+        try:
+            response.raise_for_status()
+            payload = response.json()
+        except (requests.RequestException, ValueError) as exc:
+            raise GitError(f"GitHub token permission check failed: {exc}") from exc
+        permissions = payload.get("permissions") if isinstance(payload, dict) else {}
+        if isinstance(permissions, dict) and not any(
+            permissions.get(name) is True for name in ("push", "maintain", "admin")
+        ):
+            raise GitError(
+                f"GitHub token can read {owner}/{repo}, but it does not have push/write access. "
+                "Fine-grained tokens need Repository permissions: Contents read/write and Pull requests read/write."
+            )
 
     def create_pull_request(
         self,

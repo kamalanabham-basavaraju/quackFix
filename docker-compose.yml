@@ -7,7 +7,7 @@ services:
       - .env
     environment:
       EMPLOYEE_PORTAL_PATH: /workspace/employee-portal
-      ENABLE_GIT_PUSH: "false"
+      ENABLE_GIT_PUSH: ${ENABLE_GIT_PUSH:-false}
     volumes:
       - ${EMPLOYEE_PORTAL_PATH_HOST:?Set EMPLOYEE_PORTAL_PATH_HOST}:/workspace/employee-portal
     restart: unless-stopped

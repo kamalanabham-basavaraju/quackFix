@@ -13,6 +13,7 @@ NODE_ORDER = [
     "return_information",
     "analyze_incident",
     "generate_enterpro_prompt",
+    "preflight_git_push",
     "create_git_branch",
     "execute_enterpro",
     "validate_changes",
@@ -28,6 +29,7 @@ NODE_ORDER = [
 CODE_CHANGE_ORDER = [
     "analyze_incident",
     "generate_enterpro_prompt",
+    "preflight_git_push",
     "create_git_branch",
     "execute_enterpro",
     "validate_changes",
