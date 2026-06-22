@@ -47,13 +47,13 @@ reprocessed on every poll.
 
 Copy `.env.example` to `.env` and provide the real Parcle, Groq, Enter Pro, and Employee Portal values. Important:
 
-- `EMPLOYEE_PORTAL_PATH` must point to an existing local Git repository.
+- `EMPLOYEE_PORTAL_PATH` must point to an existing local Git repository where agent needs to act on.
 - `PARCLE_MEMORY_DIR` defaults to `docs/parcle_memory`; repo docs and incident reports stored there are committed and can sync through GitHub.
 - `VALIDATION_COMMAND` is run inside that repository after Enter Pro edits it.
 - `REQUIRE_CLEAN_TARGET_REPO` defaults to `false`, allowing the workflow to continue from prior incident edits that are still uncommitted.
 - `ENABLE_GIT_PUSH=true` pushes the incident branch after commit.
 - `GITHUB_TOKEN` or `GH_TOKEN` is required to create a pull request. Fine-grained GitHub tokens need repository
-  access to the Employee Portal repo plus `Contents: Read and write` and `Pull requests: Read and write`.
+  access to the Employee Portal(your traget repo) repo plus `Contents: Read and write` and `Pull requests: Read and write`.
 - `GITHUB_BASE_BRANCH` defaults to `main`.
 - `PRODUCK_MCP_TOKEN` is required for Produck MCP access.
 - `PRODUCK_POLL_ENABLED=true` starts the background Produck poller.
