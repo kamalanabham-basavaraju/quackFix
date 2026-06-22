@@ -5,6 +5,11 @@ remediation in an existing Employee Portal repository. It searches Parcle memory
 analysis and implementation planning, delegates the edit to Enter Pro, validates the result, records an audit trail,
 and can push an incident branch plus open a pull request when GitHub settings are configured.
 
+## Project Resources
+
+- Employee Tracker repository: [bokadaman07-design/employee_portal.git](https://github.com/bokadaman07-design/employee_portal.git)
+- Shared project artifacts: [Google Drive folder](https://drive.google.com/drive/folders/14Uk6PaZL537_fRwhSys6pTKqqoG3Xg2R?usp=drive_link)
+
 ## Workflow
 
 ```mermaid
