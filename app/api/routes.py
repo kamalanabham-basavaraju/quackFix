@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -18,6 +19,10 @@ router = APIRouter(prefix="/api/v1", tags=["incidents"])
 
 
 class ProduckPollRequest(BaseModel):
+    employee_portal_path: str | None = None
+
+
+class ProduckTriggerRequest(BaseModel):
     employee_portal_path: str | None = None
 
 
@@ -68,9 +73,58 @@ async def list_produck_tools() -> dict[str, Any]:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
+@router.post("/produck/tickets/open", tags=["produck"])
+async def fetch_open_produck_tickets(request: Request, payload: ProduckPollRequest | None = None) -> dict[str, Any]:
+    employee_portal_path = payload.employee_portal_path if payload else None
+    scheduler = None if employee_portal_path else _app_scheduler(request)
+    if scheduler is None:
+        scheduler = _build_manual_produck_scheduler(settings.with_employee_portal_path(employee_portal_path))
+    try:
+        summaries = await scheduler.client.fetch_open_ticket_summaries(scheduler.feedback_ids)
+        tickets = []
+        skipped_processed = 0
+        failures = 0
+        for summary in summaries:
+            feedback_id = str(summary.get("feedback_id") or "")
+            if not feedback_id:
+                continue
+            if scheduler.state_store.is_processed(feedback_id):
+                skipped_processed += 1
+                continue
+            try:
+                ticket = await scheduler.client.fetch_ticket(feedback_id)
+                fingerprint = ticket_fingerprint(ticket)
+                if not scheduler.state_store.should_process(ticket.ticket_id, fingerprint):
+                    skipped_processed += 1
+                    continue
+                payload = ticket.model_dump(mode="json")
+                payload["fingerprint"] = fingerprint
+                tickets.append(payload)
+            except Exception:
+                failures += 1
+                logger.exception("Produck ticket preview fetch failed", extra={"ticket_id": feedback_id})
+        return {
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+            "fetched": len(summaries),
+            "tickets": tickets,
+            "skipped_processed": skipped_processed,
+            "failures": failures,
+        }
+    except Exception as exc:
+        logger.exception("Produck ticket preview failed")
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
 @router.post("/produck/tickets/{feedback_id}/trigger", tags=["produck"])
-async def trigger_produck_ticket(feedback_id: str, request: Request) -> dict[str, Any]:
-    scheduler = _app_scheduler(request) or _build_manual_produck_scheduler()
+async def trigger_produck_ticket(
+    feedback_id: str,
+    request: Request,
+    payload: ProduckTriggerRequest | None = None,
+) -> dict[str, Any]:
+    employee_portal_path = payload.employee_portal_path if payload else None
+    scheduler = None if employee_portal_path else _app_scheduler(request)
+    if scheduler is None:
+        scheduler = _build_manual_produck_scheduler(settings.with_employee_portal_path(employee_portal_path))
     try:
         if scheduler.state_store.is_processed(feedback_id):
             return {
@@ -94,8 +148,12 @@ async def trigger_produck_ticket(feedback_id: str, request: Request) -> dict[str
             "skipped": False,
             "summary": state.get("summary"),
             "branch_name": state.get("branch_name"),
+            "commit_hash": state.get("commit_hash"),
             "pull_request_url": state.get("pull_request_url"),
             "incident_record_path": state.get("incident_record_path"),
+            "files_modified": state.get("files_modified"),
+            "documentation_updated": state.get("documentation_updated"),
+            "validation": state.get("validation"),
             "run_id": state.get("run_id"),
         }
     except Exception as exc:

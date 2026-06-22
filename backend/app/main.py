@@ -3,15 +3,14 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-import httpx
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import settings
-from app.db.session import SessionLocal, get_db
-from app.models.conversation import AppSetting, Conversation, IncidentExecution, Message, now_utc
+from app.db.session import get_db
+from app.models.conversation import Conversation, IncidentExecution, Message, now_utc
 from app.schemas import (
     ConversationCreate,
     ConversationOut,
@@ -21,6 +20,8 @@ from app.schemas import (
     IncidentSubmitResponse,
     ProduckFetchSetting,
     ProduckFetchSettingOut,
+    ProduckPollHistoryResponse,
+    ProduckTriggerResponse,
     SearchResult,
     TargetRepoSetting,
     TargetRepoSettingOut,
@@ -28,9 +29,12 @@ from app.schemas import (
 from app.services import (
     conversation_query,
     dashboard_payload,
+    fetch_produck_tickets_into_history,
     get_setting,
     process_incident_execution,
+    process_produck_ticket_execution,
     produck_auto_poll_loop,
+    produck_ticket_id_from_conversation,
     search_payload,
     title_from_incident,
 )
@@ -211,21 +215,41 @@ def set_target_repo_setting(payload: TargetRepoSetting, db: Session = Depends(ge
     }
 
 
-@app.post("/api/produck/poll")
+@app.post("/api/produck/poll", response_model=ProduckPollHistoryResponse)
 async def poll_produck() -> dict[str, Any]:
     try:
-        with SessionLocal() as db:
-            target_repo = get_setting(db, "target_repo", {"employee_portal_path": ""})
-            employee_portal_path = target_repo.value.get("employee_portal_path") or None
-        request_payload: dict[str, Any] = {}
-        if employee_portal_path:
-            request_payload["employee_portal_path"] = employee_portal_path
-        async with httpx.AsyncClient(timeout=None) as client:
-            response = await client.post(
-                f"{settings.langgraph_url.rstrip('/')}/api/v1/produck/poll",
-                json=request_payload or None,
-            )
-            response.raise_for_status()
-            return response.json()
+        return await fetch_produck_tickets_into_history()
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post("/api/produck/conversations/{conversation_id}/trigger", response_model=ProduckTriggerResponse)
+async def trigger_produck_conversation(conversation_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+    conversation = db.scalars(
+        select(Conversation)
+        .where(Conversation.id == conversation_id)
+        .options(selectinload(Conversation.messages), selectinload(Conversation.executions))
+    ).unique().first()
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    if conversation.category != "produck":
+        raise HTTPException(status_code=400, detail="Conversation is not a Produck ticket")
+    ticket_id = produck_ticket_id_from_conversation(conversation)
+    if not ticket_id:
+        raise HTTPException(status_code=400, detail="Produck ticket id is missing")
+
+    repo_setting = get_setting(db, "target_repo", {"employee_portal_path": ""})
+    employee_portal_path = repo_setting.value.get("employee_portal_path") or None
+    db.add(Message(conversation_id=conversation.id, role="assistant", content="Working on this Produck ticket now..."))
+    execution = IncidentExecution(conversation_id=conversation.id, status="queued", stage="queued")
+    db.add(execution)
+    conversation.updated_at = now_utc()
+    db.commit()
+    db.refresh(execution)
+    conversation = db.scalars(
+        select(Conversation)
+        .where(Conversation.id == conversation_id)
+        .options(selectinload(Conversation.messages), selectinload(Conversation.executions))
+    ).unique().one()
+    asyncio.create_task(process_produck_ticket_execution(execution.id, ticket_id, employee_portal_path))
+    return {"conversation": conversation, "execution": execution}

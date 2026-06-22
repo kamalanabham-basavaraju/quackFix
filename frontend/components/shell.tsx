@@ -75,6 +75,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 href={`/incidents/${conversation.id}`}
                 className={`mb-2 block rounded-md border p-3 transition-colors ${active ? "bg-muted" : "hover:bg-muted/70"}`}
               >
+                {conversation.category === "produck" && (
+                  <div className="mb-2 inline-flex rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
+                    Produck
+                  </div>
+                )}
                 <div className="line-clamp-2 text-sm font-medium">{conversation.title}</div>
                 <div className="mt-2 text-xs text-muted-foreground">{formatDate(conversation.updated_at)}</div>
               </Link>

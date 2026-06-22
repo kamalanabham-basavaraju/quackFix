@@ -1,5 +1,5 @@
 import { apiBase } from "@/lib/utils";
-import type { Conversation, Dashboard } from "@/lib/types";
+import type { Conversation, Dashboard, ProduckPollResult } from "@/lib/types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBase()}${path}`, {
@@ -56,5 +56,10 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ employee_portal_path }),
     }),
-  pollProduck: () => request<Record<string, unknown>>("/api/produck/poll", { method: "POST" }),
+  pollProduck: () => request<ProduckPollResult>("/api/produck/poll", { method: "POST" }),
+  triggerProduckConversation: (conversationId: string) =>
+    request<{ conversation: Conversation; execution: Conversation["executions"][number] }>(
+      `/api/produck/conversations/${conversationId}/trigger`,
+      { method: "POST" },
+    ),
 };

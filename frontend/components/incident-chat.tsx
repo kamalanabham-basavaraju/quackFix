@@ -17,6 +17,7 @@ import { StatusBadge } from "@/components/status";
 const stages = [
   "queued",
   "running",
+  "fetching_produck_ticket",
   "searching_parcle",
   "analyzing",
   "generating_fix",
@@ -38,6 +39,7 @@ export function IncidentChat({ conversationId }: { conversationId?: string }) {
     refetchInterval: 5000,
   });
   const activeExecution = conversation.data?.executions.at(-1);
+  const isProduckTicket = conversation.data?.category === "produck";
 
   const refreshExecution = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["conversation", conversationId] });
@@ -71,8 +73,21 @@ export function IncidentChat({ conversationId }: { conversationId?: string }) {
       setToast(error.message);
     },
   });
+  const triggerProduck = useMutation({
+    mutationFn: () => api.triggerProduckConversation(conversationId!),
+    onSuccess: (payload) => {
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      queryClient.invalidateQueries({ queryKey: ["conversation", payload.conversation.id] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+    onError: (error) => setToast(error.message),
+  });
 
   const data = conversation.data;
+  const canTriggerProduck =
+    Boolean(conversationId && isProduckTicket) &&
+    !triggerProduck.isPending &&
+    !["queued", "running"].includes(activeExecution?.status || "");
   const sendIncident = () => {
     const prompt = incident.trim();
     if (!prompt || submit.isPending) return;
@@ -84,7 +99,11 @@ export function IncidentChat({ conversationId }: { conversationId?: string }) {
         <header className="flex h-16 items-center justify-between border-b px-6">
           <div>
             <h1 className="font-heading text-lg font-semibold">{data?.title || "New incident"}</h1>
-            <p className="text-xs text-muted-foreground">Messages, execution metadata, and audit trail are persisted.</p>
+            <p className="text-xs text-muted-foreground">
+              {isProduckTicket
+                ? "Produck ticket preview and execution history are persisted."
+                : "Messages, execution metadata, and audit trail are persisted."}
+            </p>
           </div>
           {activeExecution && <StatusBadge status={activeExecution.status} />}
         </header>
@@ -99,6 +118,17 @@ export function IncidentChat({ conversationId }: { conversationId?: string }) {
             </div>
           )}
           <div className="mx-auto flex max-w-4xl flex-col gap-4">
+            {isProduckTicket && (
+              <div className="rounded-lg border border-primary/30 bg-primary/5 p-4">
+                <div className="text-sm font-medium">Produck ticket waiting for approval</div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  This ticket was fetched into history only. Quackfix will not change code or answer it until you approve.
+                </p>
+                <Button className="mt-3" onClick={() => triggerProduck.mutate()} disabled={!canTriggerProduck}>
+                  {triggerProduck.isPending ? "Starting..." : "Fix / answer ticket"}
+                </Button>
+              </div>
+            )}
             {data?.messages.map((message) => (
               <div key={message.id} className={message.role === "user" ? "ml-auto max-w-[80%]" : "mr-auto max-w-[86%]"}>
                 <div className="mb-1 text-xs text-muted-foreground">{message.role} - {formatDate(message.timestamp)}</div>

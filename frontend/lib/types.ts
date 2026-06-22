@@ -47,3 +47,13 @@ export type Dashboard = {
   success_rate: { name: string; value: number }[];
   resolution_duration: { execution_id: string; seconds: number }[];
 };
+
+export type ProduckPollResult = {
+  checked_at: string | null;
+  fetched: number;
+  added: number;
+  updated: number;
+  skipped_processed: number;
+  failures: number;
+  conversations: Conversation[];
+};

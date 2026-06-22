@@ -1,7 +1,8 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, Save } from "lucide-react";
+import Link from "next/link";
+import { ExternalLink, RefreshCw, Save } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { AppShell } from "@/components/shell";
@@ -36,7 +37,10 @@ export default function DiagnosticsPage() {
     mutationFn: api.setTargetRepo,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["target-repo"] }),
   });
-  const poll = useMutation({ mutationFn: api.pollProduck });
+  const poll = useMutation({
+    mutationFn: api.pollProduck,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["conversations"] }),
+  });
   const enabled = Boolean((setting.data as { enabled?: boolean } | undefined)?.enabled);
   return (
     <AppShell>
@@ -86,16 +90,43 @@ export default function DiagnosticsPage() {
             </CardContent>
           </Card>
           <Card>
-            <CardHeader><CardTitle>Manual poll</CardTitle></CardHeader>
+            <CardHeader><CardTitle>Manual Produck inbox</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <Button onClick={() => poll.mutate()} disabled={poll.isPending}>
-                <RefreshCw className="h-4 w-4" />
-                Poll Produck now
+                <RefreshCw className={`h-4 w-4 ${poll.isPending ? "animate-spin" : ""}`} />
+                {poll.isPending ? "Fetching tickets..." : "Fetch Produck tickets"}
               </Button>
+              <p className="text-sm text-muted-foreground">
+                Fetching only adds Produck tickets to the left-side history. Quackfix will not fix or answer a ticket
+                until you open it and choose the action.
+              </p>
               {poll.data && (
-                <pre className="max-h-72 overflow-auto rounded-md bg-muted p-3 font-mono text-xs">
-                  {JSON.stringify(poll.data, null, 2)}
-                </pre>
+                <div className="space-y-3">
+                  <div className="rounded-md border bg-muted/40 p-3 text-sm">
+                    Found {poll.data.fetched} open ticket{poll.data.fetched === 1 ? "" : "s"}. Added {poll.data.added}, updated{" "}
+                    {poll.data.updated}, skipped {poll.data.skipped_processed}, failures {poll.data.failures}.
+                  </div>
+                  <div className="space-y-2">
+                    {poll.data.conversations.map((conversation) => (
+                      <Link
+                        key={conversation.id}
+                        href={`/incidents/${conversation.id}`}
+                        className="flex items-center justify-between rounded-md border p-3 transition-colors hover:bg-muted"
+                      >
+                        <div>
+                          <div className="text-sm font-medium">{conversation.title}</div>
+                          <div className="text-xs text-muted-foreground">Saved to persistent history</div>
+                        </div>
+                        <ExternalLink className="h-4 w-4 text-muted-foreground" />
+                      </Link>
+                    ))}
+                    {!poll.data.conversations.length && (
+                      <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                        No new actionable Produck tickets were returned.
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
               {poll.error && <div className="text-sm text-destructive">{poll.error.message}</div>}
             </CardContent>

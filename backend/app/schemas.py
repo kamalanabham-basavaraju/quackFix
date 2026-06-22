@@ -107,3 +107,18 @@ class TargetRepoSetting(BaseModel):
 class TargetRepoSettingOut(BaseModel):
     employee_portal_path: str
     updated_at: datetime | None = None
+
+
+class ProduckPollHistoryResponse(BaseModel):
+    checked_at: str | None = None
+    fetched: int = 0
+    added: int = 0
+    updated: int = 0
+    skipped_processed: int = 0
+    failures: int = 0
+    conversations: list[ConversationOut] = []
+
+
+class ProduckTriggerResponse(BaseModel):
+    conversation: ConversationOut
+    execution: ExecutionOut
