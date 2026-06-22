@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
-import { BarChart3, Bot, Moon, Plus, Search, Settings2, Sun } from "lucide-react";
+import { BarChart3, Moon, Plus, Search, Settings2, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { api } from "@/lib/api";
 import { Conversation } from "@/lib/types";
@@ -17,6 +18,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
   const [search, setSearch] = useState("");
   const conversations = useQuery({
     queryKey: ["conversations", search],
@@ -24,13 +26,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   });
   const items = useMemo(() => conversations.data || [], [conversations.data]);
 
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   return (
     <div className="flex h-screen min-h-0 overflow-hidden bg-background">
       <aside className="flex min-h-0 w-80 shrink-0 flex-col border-r bg-card">
         <div className="flex h-16 items-center justify-between border-b px-4">
           <Link href="/" className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary text-primary-foreground">
-              <Bot className="h-5 w-5" />
+            <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-md bg-primary/10">
+              <Image src="/assets/logo_light_mode.png" alt="Quackfix" width={36} height={36} className="h-9 w-9 object-contain" priority />
             </div>
             <div>
               <div className="font-heading text-lg font-semibold">Quackfix</div>
@@ -43,7 +49,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
             title="Toggle theme"
           >
-            {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            {mounted && (theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />)}
           </Button>
         </div>
         <div className="space-y-3 border-b p-4">
