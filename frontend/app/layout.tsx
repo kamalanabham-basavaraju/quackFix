@@ -11,6 +11,10 @@ const jetbrains = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jetbrai
 export const metadata: Metadata = {
   title: "Quackfix",
   description: "AI Incident Resolution Portal",
+  icons: {
+    icon: "/assets/logo_light_mode.png",
+    apple: "/assets/logo_light_mode.png",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
